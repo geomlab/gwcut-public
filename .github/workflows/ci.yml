@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  stage0:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell syntax
+        run: bash -n bootstrap.sh
+      - name: Validate public bootstrap security contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          text = Path("bootstrap.sh").read_text(encoding="utf-8")
+          required = [
+              'set -euo pipefail',
+              'set +x',
+              'umask 077',
+              'readonly REPO_URL="https://github.com/geomlab/gwcut-infra.git"',
+              'readonly TOKEN_FILE="/opt/gwcut/updater-github-token"',
+              'GITHUB_TOKEN|S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION',
+              'git ls-remote "$REPO_URL" refs/heads/main',
+              'git -C "$partial" fetch --depth=1 origin "$target_sha"',
+              'git -C "$partial" rev-parse HEAD',
+              'chmod 0600 "$TOKEN_FILE"',
+              'export GIT_TERMINAL_PROMPT=0',
+              'fresh-bootstrap.sh',
+              'GWCUT_INFRA_GIT_SHA="$target_sha"',
+          ]
+          for needle in required:
+              assert needle in text, needle
+
+          forbidden = [
+              'eval ',
+              'source ',
+              'set -x',
+              'sha256:',
+              'gwcut-worker',
+              'GWCUT_CONTROL_TOKEN=',
+              'DATABASE_URL=',
+          ]
+          for needle in forbidden:
+              assert needle not in text, needle
+
+          assert text.count('printf \'S3_ACCESS_KEY=%s\\n\' "$S3_ACCESS_KEY"') == 1
+          assert text.count('printf \'S3_SECRET_KEY=%s\\n\' "$S3_SECRET_KEY"') == 1
+          assert 'existing GWCut installation detected' in text
+          assert 'fresh bootstrap requires Ubuntu 24.04' in text
+          PY
