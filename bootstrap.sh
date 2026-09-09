@@ -16,9 +16,8 @@ fatal() {
 [[ ! -e /opt/gwcut-infra/current ]] || fatal "existing GWCut installation detected; use the authenticated updater instead"
 
 [[ -r /etc/os-release ]] || fatal "cannot identify operating system"
-# shellcheck disable=SC1091
-. /etc/os-release
-[[ ${ID:-} == "ubuntu" && ${VERSION_ID:-} == "24.04" ]] || fatal "fresh bootstrap requires Ubuntu 24.04"
+grep -Eq '^ID="?ubuntu"?$' /etc/os-release || fatal "fresh bootstrap requires Ubuntu 24.04"
+grep -Eq '^VERSION_ID="?24\.04"?$' /etc/os-release || fatal "fresh bootstrap requires Ubuntu 24.04"
 
 GITHUB_TOKEN=""
 S3_ACCESS_KEY=""
