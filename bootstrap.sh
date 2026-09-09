@@ -59,6 +59,7 @@ chmod 0600 "$TOKEN_FILE"
 unset GITHUB_TOKEN
 
 askpass="/run/gwcut-stage0-askpass.$$"
+partial=""
 cat >"$askpass" <<'EOF'
 #!/bin/sh
 set -eu
@@ -73,6 +74,9 @@ export GIT_ASKPASS="$askpass"
 export GIT_TERMINAL_PROMPT=0
 cleanup() {
   rm -f "$askpass"
+  if [[ -n "$partial" && -e "$partial" ]]; then
+    rm -rf -- "$partial"
+  fi
 }
 trap cleanup EXIT
 
@@ -91,6 +95,7 @@ if [[ ! -d "$target_release/.git" ]]; then
   git -C "$partial" checkout --detach -q FETCH_HEAD
   [[ $(git -C "$partial" rev-parse HEAD) == "$target_sha" ]] || fatal "fetched gwcut-infra release SHA mismatch"
   mv "$partial" "$target_release"
+  partial=""
 fi
 [[ $(git -C "$target_release" rev-parse HEAD) == "$target_sha" ]] || fatal "existing release path has a different Git SHA"
 [[ -f "$target_release/deploy/fresh-bootstrap.sh" ]] || fatal "resolved gwcut-infra release lacks fresh bootstrap contract"
