@@ -1,36 +1,48 @@
-# GWCut public bootstrap
+# GWCut public Stage-0
 
-This public repository contains only the non-secret Stage-0 entry point for bootstrapping a pristine Ubuntu 24.04 Hetzner Cloud host.
+This public repository contains only the non-secret Stage-0 entry point for bootstrapping pristine Ubuntu 24.04 Hetzner Cloud hosts. The privileged control plane, worker image allowlist, database/recovery logic and science orchestration remain in private `geomlab/gwcut-infra`; credentials and private deployment configuration must never be committed here.
 
-The privileged control plane, deployment policy, worker image allowlist, database logic, recovery gates, and science orchestration remain in the private `geomlab/gwcut-infra` repository. No credentials or private deployment configuration belong here.
+## Trust model
 
-## Fresh-host flow
+Production-style operator blocks must pin **both** layers:
 
-Run this first on the fresh server:
+1. fetch `bootstrap.sh` from a reviewed immutable `geomlab/gwcut-public` commit, not mutable `main`;
+2. set `GWCUT_INFRA_GIT_SHA` to one reviewed 40-character `geomlab/gwcut-infra` commit.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/geomlab/gwcut-public/main/bootstrap.sh \
-  -o /root/gwcut-bootstrap &&
-chmod 700 /root/gwcut-bootstrap
-```
+Stage 0 does not resolve `refs/heads/main`. It authenticates private Git with a temporary root-only `GIT_ASKPASS` helper whose source contains only the token-file pathname, fetches only the requested infra commit, verifies the checkout SHA, and delegates to that immutable release.
 
-Then paste the one secret block:
+## First-install secret bundle
 
-```bash
-sudo /root/gwcut-bootstrap <<'GWCUT'
-GITHUB_TOKEN=REPLACE_WITH_PRIVATE_REPO_READ_TOKEN
-GHCR_READ_TOKEN=REPLACE_WITH_CLASSIC_PAT_WITH_READ_PACKAGES
-S3_ACCESS_KEY=REPLACE_WITH_HETZNER_OBJECT_STORAGE_ACCESS_KEY
-S3_SECRET_KEY=REPLACE_WITH_HETZNER_OBJECT_STORAGE_SECRET_KEY
-S3_BUCKET=REPLACE_WITH_BUCKET
+The default mode is `first-install`. Its stdin contains exactly the external secrets/configuration needed by the convenience path:
+
+```text
+GITHUB_TOKEN=...
+GHCR_READ_TOKEN=...
+DASHBOARD_PASSWORD=...
+S3_WORKER_ACCESS_KEY=...
+S3_WORKER_SECRET_KEY=...
+S3_READER_ACCESS_KEY=...
+S3_READER_SECRET_KEY=...
+S3_BACKUP_ACCESS_KEY=...
+S3_BACKUP_SECRET_KEY=...
+S3_PITR_ACCESS_KEY=...
+S3_PITR_SECRET_KEY=...
+S3_BUCKET=...
 S3_REGION=fsn1
-GWCUT
 ```
 
-Stage 0 accepts exactly those six fields. It stores the private-repository token and the separate private-GHCR read token in distinct root-only files, resolves `geomlab/gwcut-infra/main` through authenticated Git to one exact commit SHA, fetches only that immutable commit, and delegates all deployment decisions to its private `deploy/fresh-bootstrap.sh` contract. The GHCR token is not forwarded on stdin to the private bootstrap or exposed to runtime services; the private installer uses its root-only file only to preload deployment-approved digest-pinned images.
+The four Object Storage identities are intentionally distinct. Do not replace them with one broad convenience key. Configure bucket policy/permissions so the artifact reader is read-only and worker, logical-backup and physical-PITR authority are independently bounded to their required operations/prefixes.
 
-The private bootstrap obtains the Hetzner public IPv4 from instance metadata, derives conservative explicit host resource budgets, generates the database password and API tokens locally, configures the supplied Object Storage keypair, and runs the normal fail-closed infrastructure installer. No domain or DNS record is required. On a successful installation the dashboard is intended to be available at `https://<server-public-ipv4>/` with a publicly trusted short-lived IP certificate.
+The repository and GHCR credentials are persisted in separate root-only files. The remaining secrets are passed to the private bootstrap over stdin rather than Git URLs or command arguments. Database and internal API tokens are generated locally. The supplied dashboard password becomes the Basic-Auth control password so no second SSH session is required merely to discover it.
 
-This convenience path deliberately reuses one operator-supplied Object Storage credential across the internal worker, artifact-reader, and backup secret-file contracts. Deployments that need storage least privilege can still use the private manual deployment path with split credentials.
+## First-install completion contract
 
-Do not put real credentials in this public repository. A failed bootstrap is not evidence that the host is safe to use or destroy; follow the private infrastructure recovery/lifecycle gates.
+The private bootstrap obtains the public IPv4 from Hetzner metadata, derives the location Object Storage endpoint and explicit host budgets, installs the exact release, preloads only approved digest-pinned images, performs the logical first-install/restore decision, creates a generation-scoped pgBackRest repository, and requires stanza/check/full-backup recovery gates.
+
+In `first-install` mode Stage 0 additionally requires the existing `gwcut-science-smoke.service` without `--allow-existing`. Completion requires the durable receipt to contain `status: "passed"` and `fresh_submission: true`. The public loader verifies the private root-only completion marker and the receipt before returning success.
+
+A partial bootstrap may be re-pasted only for the **same pinned infra SHA**. If `/opt/gwcut-infra/current` points at another release, Stage 0 fails closed and the authenticated updater is the only supported transition. A failed or ambiguous science execution is never reclassified as fresh evidence.
+
+`GWCUT_BOOTSTRAP_MODE=host` retains replacement/recovery behavior without demanding a fresh deterministic science fixture from restored state. `GWCUT_BOOTSTRAP_MODE=pitr-restore-drill` remains the disposable physical restore/WAL-replay path and uses the dedicated PITR Object Storage identity.
+
+Do not treat successful first-install alone as complete production-lifecycle proof. The private lifecycle still requires the separate off-host restore, safe-shutdown, `safe_to_destroy`, provider deletion and replacement-recovery evidence.
