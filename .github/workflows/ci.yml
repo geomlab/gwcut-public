@@ -24,6 +24,9 @@ jobs:
               'umask 077',
               'readonly REPO_URL="https://github.com/geomlab/gwcut-infra.git"',
               'readonly TOKEN_FILE="/opt/gwcut/updater-github-token"',
+              'readonly AUTH_DIR="/opt/gwcut/auth"',
+              'install -d -o root -g root -m 0700 "$AUTH_DIR"',
+              'askpass="${AUTH_DIR}/stage0-askpass.$$"',
               'GITHUB_TOKEN|S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION',
               'git ls-remote "$REPO_URL" refs/heads/main',
               'git -C "$partial" fetch --depth=1 origin "$target_sha"',
@@ -44,6 +47,7 @@ jobs:
               'gwcut-worker',
               'GWCUT_CONTROL_TOKEN=',
               'DATABASE_URL=',
+              '/run/gwcut-stage0-askpass',
           ]
           for needle in forbidden:
               assert needle not in text, needle

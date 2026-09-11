@@ -6,6 +6,7 @@ umask 077
 readonly REPO_URL="https://github.com/geomlab/gwcut-infra.git"
 readonly TOKEN_FILE="/opt/gwcut/updater-github-token"
 readonly RELEASE_ROOT="/opt/gwcut-infra/releases"
+readonly AUTH_DIR="/opt/gwcut/auth"
 
 fatal() {
   printf 'gwcut stage-0 bootstrap failed: %s\n' "$*" >&2
@@ -53,12 +54,15 @@ fi
 command -v git >/dev/null 2>&1 || fatal "git is unavailable after package preparation"
 
 install -d -o root -g root -m 0755 /opt/gwcut "$RELEASE_ROOT"
+install -d -o root -g root -m 0700 "$AUTH_DIR"
 printf '%s\n' "$GITHUB_TOKEN" >"$TOKEN_FILE"
 chown root:root "$TOKEN_FILE"
 chmod 0600 "$TOKEN_FILE"
 unset GITHUB_TOKEN
 
-askpass="/run/gwcut-stage0-askpass.$$"
+# /run is commonly mounted noexec on hardened Ubuntu hosts. GIT_ASKPASS must itself be executable,
+# so keep this short-lived helper in a root-only executable directory instead of /run.
+askpass="${AUTH_DIR}/stage0-askpass.$$"
 partial=""
 cat >"$askpass" <<'EOF'
 #!/bin/sh
