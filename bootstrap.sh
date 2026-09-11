@@ -5,6 +5,7 @@ umask 077
 
 readonly REPO_URL="https://github.com/geomlab/gwcut-infra.git"
 readonly TOKEN_FILE="/opt/gwcut/updater-github-token"
+readonly GHCR_TOKEN_FILE="/opt/gwcut/ghcr-read-token"
 readonly RELEASE_ROOT="/opt/gwcut-infra/releases"
 readonly AUTH_DIR="/opt/gwcut/auth"
 
@@ -21,6 +22,7 @@ grep -Eq '^ID="?ubuntu"?$' /etc/os-release || fatal "fresh bootstrap requires Ub
 grep -Eq '^VERSION_ID="?24\.04"?$' /etc/os-release || fatal "fresh bootstrap requires Ubuntu 24.04"
 
 GITHUB_TOKEN=""
+GHCR_READ_TOKEN=""
 S3_ACCESS_KEY=""
 S3_SECRET_KEY=""
 S3_BUCKET=""
@@ -32,7 +34,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   name=${line%%=*}
   value=${line#*=}
   case "$name" in
-    GITHUB_TOKEN|S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION) ;;
+    GITHUB_TOKEN|GHCR_READ_TOKEN|S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION) ;;
     *) fatal "unknown bootstrap input field: $name" ;;
   esac
   [[ -z ${seen[$name]+x} ]] || fatal "duplicate bootstrap input field: $name"
@@ -42,7 +44,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   printf -v "$name" '%s' "$value"
 done
 
-for name in GITHUB_TOKEN S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION; do
+for name in GITHUB_TOKEN GHCR_READ_TOKEN S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION; do
   [[ -n ${!name} ]] || fatal "missing bootstrap input field: $name"
 done
 
@@ -56,9 +58,10 @@ command -v git >/dev/null 2>&1 || fatal "git is unavailable after package prepar
 install -d -o root -g root -m 0755 /opt/gwcut "$RELEASE_ROOT"
 install -d -o root -g root -m 0700 "$AUTH_DIR"
 printf '%s\n' "$GITHUB_TOKEN" >"$TOKEN_FILE"
-chown root:root "$TOKEN_FILE"
-chmod 0600 "$TOKEN_FILE"
-unset GITHUB_TOKEN
+printf '%s\n' "$GHCR_READ_TOKEN" >"$GHCR_TOKEN_FILE"
+chown root:root "$TOKEN_FILE" "$GHCR_TOKEN_FILE"
+chmod 0600 "$TOKEN_FILE" "$GHCR_TOKEN_FILE"
+unset GITHUB_TOKEN GHCR_READ_TOKEN
 
 # /run is commonly mounted noexec on hardened Ubuntu hosts. GIT_ASKPASS must itself be executable,
 # so keep this short-lived helper in a root-only executable directory instead of /run.
