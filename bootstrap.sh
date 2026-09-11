@@ -8,6 +8,7 @@ readonly TOKEN_FILE="/opt/gwcut/updater-github-token"
 readonly GHCR_TOKEN_FILE="/opt/gwcut/ghcr-read-token"
 readonly RELEASE_ROOT="/opt/gwcut-infra/releases"
 readonly AUTH_DIR="/opt/gwcut/auth"
+readonly BOOTSTRAP_MODE="${GWCUT_BOOTSTRAP_MODE:-host}"
 
 fatal() {
   printf 'gwcut stage-0 bootstrap failed: %s\n' "$*" >&2
@@ -16,6 +17,15 @@ fatal() {
 
 [[ ${EUID:-$(id -u)} -eq 0 ]] || fatal "must run as root"
 [[ ! -e /opt/gwcut-infra/current ]] || fatal "existing GWCut installation detected; use the authenticated updater instead"
+case "$BOOTSTRAP_MODE" in
+  host) ;;
+  pitr-restore-drill)
+    [[ -n ${GWCUT_PITR_SOURCE_GENERATION:-} ]] || fatal "restore drill mode requires GWCUT_PITR_SOURCE_GENERATION"
+    [[ ${GWCUT_PITR_SOURCE_GENERATION} =~ ^[0-9]+$ ]] || fatal "GWCUT_PITR_SOURCE_GENERATION must be numeric"
+    [[ -n ${GWCUT_DRILL_SOURCE_URL:-} ]] || fatal "restore drill mode requires GWCUT_DRILL_SOURCE_URL"
+    ;;
+  *) fatal "unsupported GWCUT_BOOTSTRAP_MODE: $BOOTSTRAP_MODE" ;;
+esac
 
 [[ -r /etc/os-release ]] || fatal "cannot identify operating system"
 grep -Eq '^ID="?ubuntu"?$' /etc/os-release || fatal "fresh bootstrap requires Ubuntu 24.04"
@@ -105,17 +115,40 @@ if [[ ! -d "$target_release/.git" ]]; then
   partial=""
 fi
 [[ $(git -C "$target_release" rev-parse HEAD) == "$target_sha" ]] || fatal "existing release path has a different Git SHA"
-[[ -f "$target_release/deploy/fresh-bootstrap.sh" ]] || fatal "resolved gwcut-infra release lacks fresh bootstrap contract"
+case "$BOOTSTRAP_MODE" in
+  host)
+    [[ -f "$target_release/deploy/fresh-bootstrap.sh" ]] || fatal "resolved gwcut-infra release lacks fresh bootstrap contract"
+    ;;
+  pitr-restore-drill)
+    [[ -f "$target_release/deploy/pitr-restore-drill.sh" ]] || fatal "resolved gwcut-infra release lacks restore drill contract"
+    ;;
+esac
 
 cleanup
 trap - EXIT
 unset GIT_ASKPASS GIT_TERMINAL_PROMPT remote_line
 
-printf 'gwcut stage-0 resolved private infra main to %s\n' "$target_sha"
-{
-  printf 'S3_ACCESS_KEY=%s\n' "$S3_ACCESS_KEY"
-  printf 'S3_SECRET_KEY=%s\n' "$S3_SECRET_KEY"
-  printf 'S3_BUCKET=%s\n' "$S3_BUCKET"
-  printf 'S3_REGION=%s\n' "$S3_REGION"
-} | env GWCUT_INFRA_GIT_SHA="$target_sha" \
-  /bin/bash "$target_release/deploy/fresh-bootstrap.sh"
+printf 'gwcut stage-0 resolved private infra main to %s for mode %s\n' "$target_sha" "$BOOTSTRAP_MODE"
+case "$BOOTSTRAP_MODE" in
+  host)
+    {
+      printf 'S3_ACCESS_KEY=%s\n' "$S3_ACCESS_KEY"
+      printf 'S3_SECRET_KEY=%s\n' "$S3_SECRET_KEY"
+      printf 'S3_BUCKET=%s\n' "$S3_BUCKET"
+      printf 'S3_REGION=%s\n' "$S3_REGION"
+    } | env GWCUT_INFRA_GIT_SHA="$target_sha" \
+      /bin/bash "$target_release/deploy/fresh-bootstrap.sh"
+    ;;
+  pitr-restore-drill)
+    env \
+      GWCUT_INFRA_GIT_SHA="$target_sha" \
+      GWCUT_PITR_SOURCE_GENERATION="$GWCUT_PITR_SOURCE_GENERATION" \
+      GWCUT_DRILL_SOURCE_URL="$GWCUT_DRILL_SOURCE_URL" \
+      S3_ACCESS_KEY="$S3_ACCESS_KEY" \
+      S3_SECRET_KEY="$S3_SECRET_KEY" \
+      S3_BUCKET="$S3_BUCKET" \
+      S3_REGION="$S3_REGION" \
+      /bin/bash "$target_release/deploy/pitr-restore-drill.sh"
+    ;;
+esac
+unset S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION
