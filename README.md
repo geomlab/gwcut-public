@@ -19,6 +19,7 @@ Then paste the one secret block:
 ```bash
 sudo /root/gwcut-bootstrap <<'GWCUT'
 GITHUB_TOKEN=REPLACE_WITH_PRIVATE_REPO_READ_TOKEN
+GHCR_READ_TOKEN=REPLACE_WITH_CLASSIC_PAT_WITH_READ_PACKAGES
 S3_ACCESS_KEY=REPLACE_WITH_HETZNER_OBJECT_STORAGE_ACCESS_KEY
 S3_SECRET_KEY=REPLACE_WITH_HETZNER_OBJECT_STORAGE_SECRET_KEY
 S3_BUCKET=REPLACE_WITH_BUCKET
@@ -26,7 +27,7 @@ S3_REGION=fsn1
 GWCUT
 ```
 
-Stage 0 accepts exactly those five fields. It stores the private-repository token root-only, resolves `geomlab/gwcut-infra/main` through authenticated Git to one exact commit SHA, fetches only that immutable commit, and delegates all deployment decisions to its private `deploy/fresh-bootstrap.sh` contract.
+Stage 0 accepts exactly those six fields. It stores the private-repository token and the separate private-GHCR read token in distinct root-only files, resolves `geomlab/gwcut-infra/main` through authenticated Git to one exact commit SHA, fetches only that immutable commit, and delegates all deployment decisions to its private `deploy/fresh-bootstrap.sh` contract. The GHCR token is not forwarded on stdin to the private bootstrap or exposed to runtime services; the private installer uses its root-only file only to preload deployment-approved digest-pinned images.
 
 The private bootstrap obtains the Hetzner public IPv4 from instance metadata, derives conservative explicit host resource budgets, generates the database password and API tokens locally, configures the supplied Object Storage keypair, and runs the normal fail-closed infrastructure installer. No domain or DNS record is required. On a successful installation the dashboard is intended to be available at `https://<server-public-ipv4>/` with a publicly trusted short-lived IP certificate.
 
