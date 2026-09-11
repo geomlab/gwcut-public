@@ -56,8 +56,9 @@ jobs:
               assert needle in text, needle
 
           forbidden = [
+              '\nsource ',
+              '\n. /',
               'eval ',
-              'source ',
               'set -x',
               'git ls-remote',
               'refs/heads/main',
