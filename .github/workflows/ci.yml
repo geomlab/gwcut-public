@@ -26,41 +26,57 @@ jobs:
               'readonly TOKEN_FILE="/opt/gwcut/updater-github-token"',
               'readonly GHCR_TOKEN_FILE="/opt/gwcut/ghcr-read-token"',
               'readonly AUTH_DIR="/opt/gwcut/auth"',
+              'readonly BOOTSTRAP_MODE="${GWCUT_BOOTSTRAP_MODE:-first-install}"',
+              'GWCUT_INFRA_GIT_SHA is required',
+              'GWCUT_INFRA_GIT_SHA must be a full lowercase commit SHA',
+              'target_sha="$GWCUT_INFRA_GIT_SHA"',
+              'first-install|host',
+              'DASHBOARD_PASSWORD',
+              'S3_WORKER_ACCESS_KEY',
+              'S3_READER_ACCESS_KEY',
+              'S3_BACKUP_ACCESS_KEY',
+              'S3_PITR_ACCESS_KEY',
+              'apt-get install -y --no-install-recommends ca-certificates curl git',
               'install -d -o root -g root -m 0700 "$AUTH_DIR"',
               'askpass="${AUTH_DIR}/stage0-askpass.$$"',
-              'GITHUB_TOKEN|GHCR_READ_TOKEN|S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION',
-              'for name in GITHUB_TOKEN GHCR_READ_TOKEN S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION',
               'printf \'%s\\n\' "$GITHUB_TOKEN" >"$TOKEN_FILE"',
               'printf \'%s\\n\' "$GHCR_READ_TOKEN" >"$GHCR_TOKEN_FILE"',
-              'chown root:root "$TOKEN_FILE" "$GHCR_TOKEN_FILE"',
-              'chmod 0600 "$TOKEN_FILE" "$GHCR_TOKEN_FILE"',
-              'unset GITHUB_TOKEN GHCR_READ_TOKEN',
-              'git ls-remote "$REPO_URL" refs/heads/main',
+              'chown root:root "$TOKEN_FILE"',
+              'chmod 0600 "$TOKEN_FILE"',
               'git -C "$partial" fetch --depth=1 origin "$target_sha"',
               'git -C "$partial" rev-parse HEAD',
               'export GIT_TERMINAL_PROMPT=0',
+              'existing GWCut installation is a different SHA',
+              'GWCUT_REQUIRE_FRESH_SCIENCE_SMOKE="$smoke_flag"',
               'fresh-bootstrap.sh',
-              'GWCUT_INFRA_GIT_SHA="$target_sha"',
+              'payload.get("status") != "passed"',
+              'payload.get("fresh_submission") is not True',
           ]
           for needle in required:
               assert needle in text, needle
 
           forbidden = [
+              '\nsource ',
+              '\n. /',
               'eval ',
-              'source ',
               'set -x',
+              'git ls-remote',
+              'refs/heads/main',
               'sha256:',
               'gwcut-worker',
-              'GWCUT_CONTROL_TOKEN=',
               'DATABASE_URL=',
               '/run/gwcut-stage0-askpass',
-              'printf \'GHCR_READ_TOKEN=%s',
+              'https://x-access-token:',
+              'S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION',
           ]
           for needle in forbidden:
               assert needle not in text, needle
 
-          assert text.count('printf \'S3_ACCESS_KEY=%s\\n\' "$S3_ACCESS_KEY"') == 1
-          assert text.count('printf \'S3_SECRET_KEY=%s\\n\' "$S3_SECRET_KEY"') == 1
-          assert 'existing GWCut installation detected' in text
+          assert text.count("printf 'S3_WORKER_ACCESS_KEY=%s\\n'") == 1
+          assert text.count("printf 'S3_READER_ACCESS_KEY=%s\\n'") == 1
+          assert text.count("printf 'S3_BACKUP_ACCESS_KEY=%s\\n'") == 1
+          assert text.count("printf 'S3_PITR_ACCESS_KEY=%s\\n'") == 1
+          assert 'env GWCUT_INFRA_GIT_SHA=' not in text
+          assert 'existing GWCut installation detected' not in text
           assert 'fresh bootstrap requires Ubuntu 24.04' in text
           PY
