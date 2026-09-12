@@ -36,6 +36,7 @@ grep -Eq '^VERSION_ID="?24\.04"?$' /etc/os-release || fatal "fresh bootstrap req
 
 GITHUB_TOKEN=""
 GHCR_READ_TOKEN=""
+DASHBOARD_PASSWORD=""
 S3_ACCESS_KEY=""
 S3_SECRET_KEY=""
 S3_BUCKET=""
@@ -47,7 +48,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   name=${line%%=*}
   value=${line#*=}
   case "$name" in
-    GITHUB_TOKEN|GHCR_READ_TOKEN|S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION) ;;
+    GITHUB_TOKEN|GHCR_READ_TOKEN|DASHBOARD_PASSWORD|S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION) ;;
     *) fatal "unknown bootstrap input field: $name" ;;
   esac
   [[ -z ${seen[$name]+x} ]] || fatal "duplicate bootstrap input field: $name"
@@ -60,7 +61,7 @@ done
 
 case "$BOOTSTRAP_MODE" in
   auto|first-install|host)
-    required=(GITHUB_TOKEN GHCR_READ_TOKEN S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION)
+    required=(GITHUB_TOKEN GHCR_READ_TOKEN DASHBOARD_PASSWORD S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION)
     ;;
   pitr-restore-drill)
     required=(GITHUB_TOKEN S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION)
@@ -195,6 +196,7 @@ case "$BOOTSTRAP_MODE" in
     fi
 
     {
+      printf 'DASHBOARD_PASSWORD=%s\n' "$DASHBOARD_PASSWORD"
       printf 'S3_ACCESS_KEY=%s\n' "$S3_ACCESS_KEY"
       printf 'S3_SECRET_KEY=%s\n' "$S3_SECRET_KEY"
       printf 'S3_BUCKET=%s\n' "$S3_BUCKET"
@@ -218,4 +220,4 @@ case "$BOOTSTRAP_MODE" in
     ;;
 esac
 
-unset S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION
+unset DASHBOARD_PASSWORD S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION
