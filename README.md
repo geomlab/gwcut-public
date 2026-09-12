@@ -66,7 +66,7 @@ A nonzero child exit status is intentionally reported without closing the SSH se
 
 The block is intended for the default Bash login shell on a fresh Ubuntu 24.04 host. Do not paste the secret-bearing operator block into a different interactive shell without an equivalent, reviewed history-suppression contract.
 
-## Canonical bootstrap bundle
+## Canonical seven-field bootstrap bundle
 
 The normal bootstrap has one durable external credential/configuration file. It contains exactly these names:
 
@@ -74,25 +74,17 @@ The normal bootstrap has one durable external credential/configuration file. It 
 GITHUB_TOKEN
 GHCR_READ_TOKEN
 DASHBOARD_PASSWORD
-
-S3_WORKER_ACCESS_KEY
-S3_WORKER_SECRET_KEY
-S3_READER_ACCESS_KEY
-S3_READER_SECRET_KEY
-S3_BACKUP_ACCESS_KEY
-S3_BACKUP_SECRET_KEY
-S3_PITR_ACCESS_KEY
-S3_PITR_SECRET_KEY
-
+S3_ACCESS_KEY
+S3_SECRET_KEY
 S3_BUCKET
 S3_REGION
 ```
 
-The four Object Storage access-key identities are mandatory and pairwise distinct. Worker, artifact reader, logical backup and PITR each receive only their own root-owned local secret file. The bootstrap never derives new provider credentials and never silently collapses the roles onto one shared Object Storage identity.
+The canonical contract deliberately retains exactly one Object Storage access/secret pair. The same pair is expanded into separate root-owned local worker, artifact-reader, logical-backup and PITR secret files. This keeps process-level secret-file boundaries while minimizing the durable provider credentials the operator must retain. Provider-side per-role S3 identities are not part of the normal bootstrap contract.
 
 The same complete file is used for a fresh GWCut database and for replacement/recovery from an existing committed backup. The operator does not select fresh install versus recovery. The private host bootstrap makes that decision fail-closed from the remote backup state and persists a root-only database-decision receipt before starting the control plane.
 
-The configured Object Storage bucket and these four role credentials are treated as long-lived production state. A compute-host rebuild is routine and reuses the retained bundle unchanged. Recreating Object Storage itself from nothing is a separate, rare provisioning task: create the bucket and role credentials first, then use the same normal bootstrap. That provider-side bootstrap is deliberately outside the compute-host recovery lifecycle.
+The configured Object Storage bucket and this one S3 credential pair are treated as long-lived production state. A compute-host rebuild is routine and reuses the retained bundle unchanged. Recreating Object Storage itself from nothing is a separate, rare provisioning task: create the bucket and one S3 credential pair first, then use the same normal bootstrap. That provider-side bootstrap is deliberately outside the compute-host recovery lifecycle.
 
 The repository and GHCR credentials are persisted in separate root-only files. Database credentials and internal API tokens are generated locally and may change on rebuild because they do not cross the recovery boundary.
 
@@ -100,7 +92,7 @@ The dashboard password is retained explicitly in the same bootstrap file and use
 
 ## Automatic fresh-or-recovery completion contract
 
-The default mode is `auto`; the operator normally does not set `GWCUT_BOOTSTRAP_MODE` at all. Historical `first-install` and `host` values are accepted as compatibility aliases for the same automatic host path. `GWCUT_BOOTSTRAP_MODE=pitr-restore-drill` remains the explicit disposable physical restore/WAL-replay path and uses the retained PITR Object Storage identity.
+The default mode is `auto`; the operator normally does not set `GWCUT_BOOTSTRAP_MODE` at all. Historical `first-install` and `host` values are accepted as compatibility aliases for the same automatic host path. `GWCUT_BOOTSTRAP_MODE=pitr-restore-drill` remains the explicit disposable physical restore/WAL-replay path and uses the retained S3 identity.
 
 The private bootstrap obtains the public IPv4 from Hetzner metadata, derives the Object Storage endpoint and explicit host budgets, installs the exact release, preloads only approved digest-pinned images, and asks the host bootstrap to decide the database state:
 

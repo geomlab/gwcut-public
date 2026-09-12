@@ -3,8 +3,8 @@ set -euo pipefail
 set +x
 umask 077
 
-readonly PUBLIC_STAGE0_SHA='293b8014b00ba18439f5cad9589fb62f7510d63d'
-readonly INFRA_SHA='dc22f661d5ff245a3c86a672040a4ed8ffe23391'
+readonly PUBLIC_STAGE0_SHA='acdc19676200931cc9b61cfaa5292b4a0ccab846'
+readonly INFRA_SHA='66515124d9f9024aaaecb67857d6cb545ce16c8a'
 readonly PUBLIC_BOOTSTRAP_URL="https://raw.githubusercontent.com/geomlab/gwcut-public/${PUBLIC_STAGE0_SHA}/bootstrap.sh"
 
 fatal() {
