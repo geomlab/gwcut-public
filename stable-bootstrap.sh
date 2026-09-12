@@ -4,7 +4,7 @@ set +x
 umask 077
 
 readonly PUBLIC_STAGE0_SHA='acdc19676200931cc9b61cfaa5292b4a0ccab846'
-readonly INFRA_SHA='ab25a0770591d599a9ba1ca98a3f82caf02064a0'
+readonly INFRA_SHA='7de0a2e8cc63869faa55c098d03dd43b5f95d385'
 readonly PUBLIC_BOOTSTRAP_URL="https://raw.githubusercontent.com/geomlab/gwcut-public/${PUBLIC_STAGE0_SHA}/bootstrap.sh"
 
 fatal() {
