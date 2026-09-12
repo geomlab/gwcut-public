@@ -60,17 +60,18 @@ A nonzero child exit status is intentionally reported without closing the SSH se
 
 The block is intended for the default Bash login shell on a fresh Ubuntu 24.04 host. Do not paste the secret-bearing operator block into a different interactive shell without an equivalent, reviewed history-suppression contract.
 
-## Canonical six-field bootstrap bundle
+## Canonical seven-field bootstrap bundle
 
-The normal bootstrap has one durable external credential/configuration file. Its stdin contains exactly:
+The normal bootstrap has one durable external credential/configuration file. It contains exactly these names:
 
 ```text
-GITHUB_TOKEN=...
-GHCR_READ_TOKEN=...
-S3_ACCESS_KEY=...
-S3_SECRET_KEY=...
-S3_BUCKET=...
-S3_REGION=fsn1
+GITHUB_TOKEN
+GHCR_READ_TOKEN
+DASHBOARD_PASSWORD
+S3_ACCESS_KEY
+S3_SECRET_KEY
+S3_BUCKET
+S3_REGION
 ```
 
 The same file is used for a completely empty Object Storage bucket and for replacement/recovery from an existing committed GWCut backup. The operator does not select fresh install versus recovery. The private host bootstrap makes that decision fail-closed from the remote backup state and persists a root-only database-decision receipt before starting the control plane.
@@ -79,7 +80,7 @@ The single retained Object Storage credential is expanded into separate root-own
 
 The repository and GHCR credentials are persisted in separate root-only files. Database credentials and internal API tokens are generated locally and may change on rebuild because they do not cross the recovery boundary.
 
-The dashboard password is **not** an additional retained secret. The private bootstrap deterministically derives a 64-hex-character control password from the stable Object Storage credential plus bucket and region under the fixed domain `gwcut-dashboard-password-v1`. The S3 secret is fed to the local hash process over stdin/pipes rather than argv or logs. Therefore the same S3 identity, bucket and region reproduce the same dashboard password after a rebuild; intentional rotation of that storage identity also rotates the dashboard password.
+The dashboard password is retained explicitly in the same bootstrap file and used verbatim as the dashboard control password. A rebuild with the same bundle therefore preserves the exact operator-selected login without coupling it to Object Storage credentials or a derivation algorithm.
 
 ## Automatic fresh-or-recovery completion contract
 
