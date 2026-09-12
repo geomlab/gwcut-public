@@ -11,6 +11,33 @@ Production-style operator blocks must pin **both** layers:
 
 Stage 0 does not resolve `refs/heads/main`. It authenticates private Git with a temporary root-only `GIT_ASKPASS` helper whose source contains only the token-file pathname, fetches only the requested infra commit, verifies the checkout SHA, and delegates to that immutable release.
 
+## SSH-safe operator boundary
+
+The outer paste must never enable `set -e`, call `exit`, or `exec` the bootstrap in the interactive SSH login shell. A bootstrap failure must terminate only a child shell so the operator remains connected and can read the failure diagnostics.
+
+The canonical outer boundary is below. Root sessions enter `/bin/bash` directly; non-root sessions enter a root child through `sudo`. The caller shell does not change its error mode, tracing mode, umask, or process identity.
+
+<!-- ssh-safe-one-paste:start -->
+```bash
+(
+  if [ "$(id -u)" -eq 0 ]; then
+    exec /bin/bash
+  fi
+  exec sudo -H /bin/bash
+) <<'GWCUT_OPERATOR'
+set -euo pipefail
+set +x
+umask 077
+
+# The complete reviewed, immutable-pin first-install operator body belongs here.
+# Any fatal `exit` in this heredoc terminates only this child shell.
+
+GWCUT_OPERATOR
+```
+<!-- ssh-safe-one-paste:end -->
+
+A nonzero child exit status is intentionally visible to the interactive shell, but it must not close the SSH session. The final one-paste production block must preserve this exact process boundary before performing package installation, temporary-file creation, secret handling, loader download, or bootstrap invocation.
+
 ## First-install secret bundle
 
 The default mode is `first-install`. Its stdin contains exactly the external secrets/configuration needed by the convenience path:
