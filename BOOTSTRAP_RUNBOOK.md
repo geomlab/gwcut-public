@@ -12,38 +12,29 @@ This runbook covers the normal compute-host path only:
 
 The operator does **not** choose between fresh install and recovery. `stable-bootstrap.sh` and the private bootstrap determine that automatically and fail closed.
 
-Recreating Object Storage itself from nothing is deliberately outside this runbook. The configured bucket and its role credentials are long-lived production state. If Object Storage must ever be recreated, provision the bucket and the four required S3 identities first; after that, this exact host runbook applies again unchanged.
+Recreating Object Storage itself from nothing is deliberately outside this runbook. The configured bucket and its one retained S3 credential pair are long-lived production state. If Object Storage must ever be recreated, provision the bucket and one S3 credential pair first; after that, this exact host runbook applies again unchanged.
 
 ## Durable bootstrap credential file
 
 The operator keeps one durable credential file outside Git and transfers/copies that same file to each replacement host as `/root/gwcut-bootstrap.env`.
 
-The file contains exactly these assignments, with real values supplied by the operator:
+The file contains exactly these seven assignments, with real values supplied by the operator:
 
 ```text
 GITHUB_TOKEN=
 GHCR_READ_TOKEN=
 DASHBOARD_PASSWORD=
-
-S3_WORKER_ACCESS_KEY=
-S3_WORKER_SECRET_KEY=
-
-S3_READER_ACCESS_KEY=
-S3_READER_SECRET_KEY=
-
-S3_BACKUP_ACCESS_KEY=
-S3_BACKUP_SECRET_KEY=
-
-S3_PITR_ACCESS_KEY=
-S3_PITR_SECRET_KEY=
-
+S3_ACCESS_KEY=
+S3_SECRET_KEY=
 S3_BUCKET=
 S3_REGION=
 ```
 
-The four S3 access-key IDs must be pairwise distinct. The worker, reader, backup and PITR identities are all mandatory. `DASHBOARD_PASSWORD` is explicit and retained verbatim so the operator-selected login survives rebuilds unchanged. The credential file must never be committed to Git.
+There is exactly one retained provider-side S3 identity in the canonical host-bootstrap contract. Worker, artifact reader, logical backup and PITR receive separate root-owned local secret files, but those local files intentionally contain the same retained S3 access/secret pair. Provider-side role-key separation is not part of the normal contract.
 
-Values are line-oriented. Current bootstrap serialization requires single-line values and rejects literal single quotes in secrets. The parser accepts the final assignment whether or not the file ends in a trailing newline.
+`DASHBOARD_PASSWORD` is explicit and retained verbatim so the operator-selected login survives rebuilds unchanged. The credential file must never be committed to Git.
+
+Values are line-oriented. Current deployment serialization requires single-line values and rejects literal single quotes in the dashboard/S3 secrets. The parser accepts the final assignment whether or not the file ends in a trailing newline.
 
 ## Step 1 — create or place the credential file
 
@@ -85,7 +76,7 @@ The bootstrap must determine the host state itself:
 - If a retry encounters an already-populated local database from the same exact release, classify/resume as `existing` only under the persisted fail-closed decision/receipt rules.
 - Authentication, Object Storage transport, manifest, integrity, restore, PITR, HTTPS, or receipt failures are fatal. They must never be silently reinterpreted as an empty/fresh installation.
 
-The same complete credential file is required in all normal states. Fresh install and recovery must not have different credential contracts.
+The same complete seven-field credential file is required in all normal states. Fresh install and recovery must not have different credential contracts.
 
 ## Stable-launcher contract
 
@@ -99,6 +90,7 @@ Agents and maintainers must therefore preserve these properties:
 - no manual fresh-vs-recovery mode is required from the operator;
 - no private-repository Git operation is required from the operator;
 - no separate restore command is required from the operator;
+- exactly one retained S3 access/secret pair is required for the normal host path;
 - the one retained credential file remains the input contract;
 - the bootstrap remains fail closed;
 - credentials remain outside Git and out of normal shell command arguments;
@@ -111,4 +103,4 @@ The intended normal human procedure on a pristine host is therefore exactly two 
 1. place/edit `/root/gwcut-bootstrap.env` using the protected `umask 077`/`nano` command above;
 2. run the stable download-and-bootstrap command above.
 
-Additional manual recovery steps are a sign that the normal bootstrap contract has failed or regressed and should be investigated rather than incorporated casually into the runbook.
+Additional manual recovery steps or additional provider-side role credentials are a sign that the normal bootstrap contract has drifted and should not be incorporated casually into the canonical runbook.
