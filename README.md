@@ -15,14 +15,16 @@ Stage 0 does not resolve `refs/heads/main`. It authenticates private Git with a 
 
 The outer paste must never enable `set -e`, call `exit`, or `exec` the bootstrap in the interactive SSH login shell. A bootstrap failure must terminate only a child shell so the operator remains connected and can read the failure diagnostics.
 
-Because the one-paste body contains secrets, the interactive Bash history must also be disabled **before** Bash reads the secret-bearing heredoc. The previous history state is restored after the child returns. Root sessions enter `/bin/bash` directly; non-root sessions enter a root child through `sudo`. The caller shell does not change its error mode, tracing mode, umask, or process identity.
+Because the one-paste body contains secrets, the interactive Bash history must also be disabled **before** Bash reads the secret-bearing heredoc. The previous history state is restored after the child returns. The history state is queried directly with `shopt -qo history`; the `$-` `H` flag is intentionally not used because it represents `histexpand`, not the independent command-history option. Root sessions enter `/bin/bash` directly; non-root sessions enter a root child through `sudo`. The caller shell does not change its error mode, tracing mode, umask, or process identity.
 
 <!-- ssh-safe-one-paste:start -->
 ```bash
-case $- in
-  *H*) GWCUT_HISTORY_WAS_ON=1; set +o history ;;
-  *)   GWCUT_HISTORY_WAS_ON=0 ;;
-esac
+if shopt -qo history; then
+  GWCUT_HISTORY_WAS_ON=1
+  set +o history
+else
+  GWCUT_HISTORY_WAS_ON=0
+fi
 
 (
   if [ "$(id -u)" -eq 0 ]; then
