@@ -2,6 +2,10 @@
 
 This public repository contains only the non-secret Stage-0 entry point for bootstrapping pristine Ubuntu 24.04 Hetzner Cloud hosts. The privileged control plane, worker image allowlist, database/recovery logic and science orchestration remain in private `geomlab/gwcut-infra`; credentials and private deployment configuration must never be committed here.
 
+## Canonical operator runbook
+
+The permanent human/operator procedure and behavioral contract for agents and maintainers is [`BOOTSTRAP_RUNBOOK.md`](BOOTSTRAP_RUNBOOK.md). For the normal host path, that document is canonical: one durable credential file, one stable public launcher command, automatic fresh-vs-recovery detection, and no manual release SHA or restore mode.
+
 ## Trust model
 
 Production-style operator blocks must pin **both** layers:
@@ -10,6 +14,8 @@ Production-style operator blocks must pin **both** layers:
 2. set `GWCUT_INFRA_GIT_SHA` to one reviewed 40-character `geomlab/gwcut-infra` commit.
 
 Stage 0 does not resolve `refs/heads/main`. It authenticates private Git with a temporary root-only `GIT_ASKPASS` helper whose source contains only the token-file pathname, fetches only the requested infra commit, verifies the checkout SHA, and delegates to that immutable release.
+
+The normal operator does not provide these pins manually. `stable-bootstrap.sh` is the stable public release-channel entry point and carries reviewed immutable public/private pins internally; see the canonical runbook above.
 
 ## SSH-safe and history-safe operator boundary
 

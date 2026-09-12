@@ -34,3 +34,40 @@ jobs:
           assert '\nsource ' not in text
           assert '\neval ' not in text
           PY
+      - name: Validate canonical operator runbook contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          runbook = Path('BOOTSTRAP_RUNBOOK.md').read_text(encoding='utf-8')
+          readme = Path('README.md').read_text(encoding='utf-8')
+
+          assert '[`BOOTSTRAP_RUNBOOK.md`](BOOTSTRAP_RUNBOOK.md)' in readme
+
+          required_fields = [
+              'GITHUB_TOKEN=',
+              'GHCR_READ_TOKEN=',
+              'DASHBOARD_PASSWORD=',
+              'S3_WORKER_ACCESS_KEY=',
+              'S3_WORKER_SECRET_KEY=',
+              'S3_READER_ACCESS_KEY=',
+              'S3_READER_SECRET_KEY=',
+              'S3_BACKUP_ACCESS_KEY=',
+              'S3_BACKUP_SECRET_KEY=',
+              'S3_PITR_ACCESS_KEY=',
+              'S3_PITR_SECRET_KEY=',
+              'S3_BUCKET=',
+              'S3_REGION=',
+          ]
+          for field in required_fields:
+              assert runbook.count(field) == 1, field
+
+          assert 'umask 077 && nano /root/gwcut-bootstrap.env && chmod 600 /root/gwcut-bootstrap.env' in runbook
+          assert 'https://raw.githubusercontent.com/geomlab/gwcut-public/main/stable-bootstrap.sh' in runbook
+          assert '&& bash /root/bootstrap.sh </root/gwcut-bootstrap.env' in runbook
+          assert 'Do not `source` this file.' in runbook
+          assert 'Do not supply release SHAs manually.' in runbook
+          assert 'no manual fresh-vs-recovery mode is required from the operator' in runbook
+          assert 'Fresh install and recovery must not have different credential contracts.' in runbook
+          assert 'normal human procedure on a pristine host is therefore exactly two actions' in runbook
+          PY
