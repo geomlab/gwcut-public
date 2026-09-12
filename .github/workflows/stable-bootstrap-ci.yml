@@ -69,5 +69,5 @@ jobs:
           assert 'Do not supply release SHAs manually.' in runbook
           assert 'no manual fresh-vs-recovery mode is required from the operator' in runbook
           assert 'Fresh install and recovery must not have different credential contracts.' in runbook
-          assert 'the normal human procedure on a pristine host is therefore exactly two actions' in runbook
+          assert 'normal human procedure on a pristine host is therefore exactly two actions' in runbook
           PY
