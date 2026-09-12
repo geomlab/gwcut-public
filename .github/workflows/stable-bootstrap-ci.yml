@@ -1,0 +1,36 @@
+name: stable-bootstrap-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  stable-launcher:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate stable launcher syntax and release contract
+        run: |
+          bash -n stable-bootstrap.sh
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path('stable-bootstrap.sh').read_text(encoding='utf-8')
+          public = re.search(r"PUBLIC_STAGE0_SHA='([0-9a-f]{40})'", text)
+          infra = re.search(r"INFRA_SHA='([0-9a-f]{40})'", text)
+          assert public, 'missing immutable public Stage-0 SHA'
+          assert infra, 'missing immutable infra SHA'
+          assert 'raw.githubusercontent.com/geomlab/gwcut-public/${PUBLIC_STAGE0_SHA}/bootstrap.sh' in text
+          assert 'GWCUT_INFRA_GIT_SHA="$INFRA_SHA" /bin/bash "$loader"' in text
+          assert "raw.githubusercontent.com/geomlab/gwcut-public/main/bootstrap.sh" not in text
+          assert 'set -euo pipefail' in text
+          assert 'set +x' in text
+          assert 'umask 077' in text
+          assert 'mktemp -d /root/gwcut-stable-bootstrap.XXXXXX' in text
+          assert "--proto '=https'" in text
+          assert '--tlsv1.2' in text
+          assert '\nsource ' not in text
+          assert '\neval ' not in text
+          PY
