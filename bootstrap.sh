@@ -8,7 +8,7 @@ readonly TOKEN_FILE="/opt/gwcut/updater-github-token"
 readonly GHCR_TOKEN_FILE="/opt/gwcut/ghcr-read-token"
 readonly RELEASE_ROOT="/opt/gwcut-infra/releases"
 readonly AUTH_DIR="/opt/gwcut/auth"
-readonly BOOTSTRAP_MODE="${GWCUT_BOOTSTRAP_MODE:-first-install}"
+readonly BOOTSTRAP_MODE="${GWCUT_BOOTSTRAP_MODE:-auto}"
 
 fatal() {
   printf 'gwcut stage-0 bootstrap failed: %s\n' "$*" >&2
@@ -21,7 +21,7 @@ fatal() {
 target_sha="$GWCUT_INFRA_GIT_SHA"
 
 case "$BOOTSTRAP_MODE" in
-  first-install|host) ;;
+  auto|first-install|host) ;;
   pitr-restore-drill)
     [[ -n ${GWCUT_PITR_SOURCE_GENERATION:-} ]] || fatal "restore drill mode requires GWCUT_PITR_SOURCE_GENERATION"
     [[ ${GWCUT_PITR_SOURCE_GENERATION} =~ ^[0-9]+$ ]] || fatal "GWCUT_PITR_SOURCE_GENERATION must be numeric"
@@ -36,15 +36,8 @@ grep -Eq '^VERSION_ID="?24\.04"?$' /etc/os-release || fatal "fresh bootstrap req
 
 GITHUB_TOKEN=""
 GHCR_READ_TOKEN=""
-DASHBOARD_PASSWORD=""
-S3_WORKER_ACCESS_KEY=""
-S3_WORKER_SECRET_KEY=""
-S3_READER_ACCESS_KEY=""
-S3_READER_SECRET_KEY=""
-S3_BACKUP_ACCESS_KEY=""
-S3_BACKUP_SECRET_KEY=""
-S3_PITR_ACCESS_KEY=""
-S3_PITR_SECRET_KEY=""
+S3_ACCESS_KEY=""
+S3_SECRET_KEY=""
 S3_BUCKET=""
 S3_REGION=""
 declare -A seen=()
@@ -54,7 +47,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   name=${line%%=*}
   value=${line#*=}
   case "$name" in
-    GITHUB_TOKEN|GHCR_READ_TOKEN|DASHBOARD_PASSWORD|S3_WORKER_ACCESS_KEY|S3_WORKER_SECRET_KEY|S3_READER_ACCESS_KEY|S3_READER_SECRET_KEY|S3_BACKUP_ACCESS_KEY|S3_BACKUP_SECRET_KEY|S3_PITR_ACCESS_KEY|S3_PITR_SECRET_KEY|S3_BUCKET|S3_REGION) ;;
+    GITHUB_TOKEN|GHCR_READ_TOKEN|S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION) ;;
     *) fatal "unknown bootstrap input field: $name" ;;
   esac
   [[ -z ${seen[$name]+x} ]] || fatal "duplicate bootstrap input field: $name"
@@ -66,18 +59,11 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 done
 
 case "$BOOTSTRAP_MODE" in
-  first-install|host)
-    required=(
-      GITHUB_TOKEN GHCR_READ_TOKEN DASHBOARD_PASSWORD
-      S3_WORKER_ACCESS_KEY S3_WORKER_SECRET_KEY
-      S3_READER_ACCESS_KEY S3_READER_SECRET_KEY
-      S3_BACKUP_ACCESS_KEY S3_BACKUP_SECRET_KEY
-      S3_PITR_ACCESS_KEY S3_PITR_SECRET_KEY
-      S3_BUCKET S3_REGION
-    )
+  auto|first-install|host)
+    required=(GITHUB_TOKEN GHCR_READ_TOKEN S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION)
     ;;
   pitr-restore-drill)
-    required=(GITHUB_TOKEN S3_PITR_ACCESS_KEY S3_PITR_SECRET_KEY S3_BUCKET S3_REGION)
+    required=(GITHUB_TOKEN S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION)
     ;;
 esac
 for name in "${required[@]}"; do
@@ -129,7 +115,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Stage 0 never resolves mutable main. The operator block pins one reviewed exact infra commit.
+# Stage 0 never resolves mutable main. The operator pins one reviewed exact infra commit.
 target_release="${RELEASE_ROOT}/${target_sha}"
 if [[ ! -d "$target_release/.git" ]]; then
   partial="${target_release}.partial.$$"
@@ -152,8 +138,8 @@ if [[ -e /opt/gwcut-infra/current ]]; then
 fi
 
 case "$BOOTSTRAP_MODE" in
-  first-install|host)
-    [[ -f "$target_release/deploy/fresh-bootstrap.sh" ]] || fatal "pinned gwcut-infra release lacks fresh bootstrap contract"
+  auto|first-install|host)
+    [[ -f "$target_release/deploy/fresh-bootstrap.sh" ]] || fatal "pinned gwcut-infra release lacks automatic host bootstrap contract"
     ;;
   pitr-restore-drill)
     [[ -f "$target_release/deploy/pitr-restore-drill.sh" ]] || fatal "pinned gwcut-infra release lacks restore drill contract"
@@ -166,79 +152,70 @@ unset GIT_ASKPASS GIT_TERMINAL_PROMPT
 
 printf 'gwcut stage-0 pinned private infra release %s for mode %s\n' "$target_sha" "$BOOTSTRAP_MODE"
 
-case "$BOOTSTRAP_MODE" in
-  first-install|host)
-    marker=/var/lib/gwcut-bootstrap/host-complete.sha
-    smoke_flag=0
-    if [[ "$BOOTSTRAP_MODE" == "first-install" ]]; then
-      marker=/var/lib/gwcut-bootstrap/first-install-complete.sha
-      smoke_flag=1
-    fi
-
-    if [[ -e /opt/gwcut-infra/current && -f "$marker" ]]; then
-      [[ $(cat "$marker") == "$target_sha" ]] || fatal "bootstrap completion marker belongs to a different infra SHA"
-      if [[ "$BOOTSTRAP_MODE" == "first-install" ]]; then
-        python3 - /var/lib/gwcut-science-smoke/last.json <<'PY'
+verify_automatic_completion() {
+  local decision=/var/lib/gwcut-bootstrap/database-decision.json
+  local science=/var/lib/gwcut-science-smoke/last.json
+  python3 - "$decision" "$science" <<'PY'
 import json
 from pathlib import Path
 import sys
-path = Path(sys.argv[1])
-payload = json.loads(path.read_text(encoding="utf-8"))
-if payload.get("status") != "passed" or payload.get("fresh_submission") is not True:
-    raise SystemExit("persisted first-install science receipt is not fresh and passing")
+
+decision_path = Path(sys.argv[1])
+science_path = Path(sys.argv[2])
+try:
+    payload = json.loads(decision_path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"database decision receipt is unreadable: {exc}")
+if payload.get("schema_version") != 1:
+    raise SystemExit("database decision receipt has unsupported schema")
+state = payload.get("database_state")
+if state not in {"fresh-empty", "restored", "existing"}:
+    raise SystemExit(f"database decision receipt is incomplete or invalid: {state!r}")
+if state == "fresh-empty":
+    try:
+        science = json.loads(science_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"fresh-install science receipt is unreadable: {exc}")
+    if science.get("status") != "passed":
+        raise SystemExit("fresh-install science receipt status is not passed")
+    if science.get("fresh_submission") is not True:
+        raise SystemExit("fresh-install science receipt is not a fresh submission")
+print(state)
 PY
-      fi
-      printf 'gwcut stage-0 already complete for exact release %s\n' "$target_sha"
+}
+
+case "$BOOTSTRAP_MODE" in
+  auto|first-install|host)
+    marker=/var/lib/gwcut-bootstrap/host-complete.sha
+    if [[ -e /opt/gwcut-infra/current && -f "$marker" ]]; then
+      [[ $(cat "$marker") == "$target_sha" ]] || fatal "bootstrap completion marker belongs to a different infra SHA"
+      state="$(verify_automatic_completion)" || fatal "persisted automatic bootstrap receipts do not verify"
+      printf 'gwcut stage-0 already complete for exact release %s (%s)\n' "$target_sha" "$state"
       exit 0
     fi
 
     {
-      printf 'DASHBOARD_PASSWORD=%s\n' "$DASHBOARD_PASSWORD"
-      printf 'S3_WORKER_ACCESS_KEY=%s\n' "$S3_WORKER_ACCESS_KEY"
-      printf 'S3_WORKER_SECRET_KEY=%s\n' "$S3_WORKER_SECRET_KEY"
-      printf 'S3_READER_ACCESS_KEY=%s\n' "$S3_READER_ACCESS_KEY"
-      printf 'S3_READER_SECRET_KEY=%s\n' "$S3_READER_SECRET_KEY"
-      printf 'S3_BACKUP_ACCESS_KEY=%s\n' "$S3_BACKUP_ACCESS_KEY"
-      printf 'S3_BACKUP_SECRET_KEY=%s\n' "$S3_BACKUP_SECRET_KEY"
-      printf 'S3_PITR_ACCESS_KEY=%s\n' "$S3_PITR_ACCESS_KEY"
-      printf 'S3_PITR_SECRET_KEY=%s\n' "$S3_PITR_SECRET_KEY"
+      printf 'S3_ACCESS_KEY=%s\n' "$S3_ACCESS_KEY"
+      printf 'S3_SECRET_KEY=%s\n' "$S3_SECRET_KEY"
       printf 'S3_BUCKET=%s\n' "$S3_BUCKET"
       printf 'S3_REGION=%s\n' "$S3_REGION"
     } | GWCUT_INFRA_GIT_SHA="$target_sha" \
-        GWCUT_REQUIRE_FRESH_SCIENCE_SMOKE="$smoke_flag" \
         /bin/bash "$target_release/deploy/fresh-bootstrap.sh"
 
     [[ -f "$marker" && $(cat "$marker") == "$target_sha" ]] || fatal "private bootstrap did not publish the exact completion marker"
-    if [[ "$BOOTSTRAP_MODE" == "first-install" ]]; then
-      python3 - /var/lib/gwcut-science-smoke/last.json <<'PY'
-import json
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-payload = json.loads(path.read_text(encoding="utf-8"))
-if payload.get("status") != "passed":
-    raise SystemExit("science smoke receipt status is not passed")
-if payload.get("fresh_submission") is not True:
-    raise SystemExit("science smoke receipt is not a fresh submission")
-PY
-    fi
+    state="$(verify_automatic_completion)" || fatal "automatic bootstrap receipts do not verify"
+    printf 'gwcut stage-0 automatic host bootstrap complete (%s)\n' "$state"
     ;;
   pitr-restore-drill)
     GWCUT_INFRA_GIT_SHA="$target_sha" \
     GWCUT_PITR_SOURCE_GENERATION="$GWCUT_PITR_SOURCE_GENERATION" \
     GWCUT_DRILL_SOURCE_URL="$GWCUT_DRILL_SOURCE_URL" \
-    S3_ACCESS_KEY="$S3_PITR_ACCESS_KEY" \
-    S3_SECRET_KEY="$S3_PITR_SECRET_KEY" \
+    S3_ACCESS_KEY="$S3_ACCESS_KEY" \
+    S3_SECRET_KEY="$S3_SECRET_KEY" \
     S3_BUCKET="$S3_BUCKET" \
     S3_REGION="$S3_REGION" \
       /bin/bash "$target_release/deploy/pitr-restore-drill.sh"
     ;;
 esac
 
-unset \
-  DASHBOARD_PASSWORD \
-  S3_WORKER_ACCESS_KEY S3_WORKER_SECRET_KEY \
-  S3_READER_ACCESS_KEY S3_READER_SECRET_KEY \
-  S3_BACKUP_ACCESS_KEY S3_BACKUP_SECRET_KEY \
-  S3_PITR_ACCESS_KEY S3_PITR_SECRET_KEY \
-  S3_BUCKET S3_REGION
+unset S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION
