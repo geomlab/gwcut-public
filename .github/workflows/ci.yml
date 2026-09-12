@@ -80,11 +80,13 @@ jobs:
           assert 'existing GWCut installation detected' not in text
           assert 'fresh bootstrap requires Ubuntu 24.04' in text
           PY
-      - name: Validate SSH-safe operator boundary
+      - name: Validate SSH-safe and history-safe operator boundary
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import shlex
           import subprocess
+          import tempfile
 
           readme = Path("README.md").read_text(encoding="utf-8")
           start_marker = "<!-- ssh-safe-one-paste:start -->"
@@ -93,9 +95,13 @@ jobs:
           assert readme.count(end_marker) == 1
           block = readme.split(start_marker, 1)[1].split(end_marker, 1)[0]
 
+          assert 'case $- in' in block
+          assert '*H*) GWCUT_HISTORY_WAS_ON=1; set +o history ;;' in block
+          assert '*)   GWCUT_HISTORY_WAS_ON=0 ;;' in block
+
           boundary = ") <<'GWCUT_OPERATOR'"
           assert boundary in block
-          outer, child = block.split(boundary, 1)
+          outer, remainder = block.split(boundary, 1)
 
           assert 'exec /bin/bash' in outer
           assert 'exec sudo -H /bin/bash' in outer
@@ -106,25 +112,60 @@ jobs:
           assert 'umask ' not in outer
           assert '\nexit ' not in outer
 
+          heredoc_end = "\nGWCUT_OPERATOR\n"
+          assert heredoc_end in remainder
+          child, after = remainder.split(heredoc_end, 1)
           assert 'set -euo pipefail' in child
           assert 'set +x' in child
           assert 'umask 077' in child
-          assert child.rstrip().endswith("GWCUT_OPERATOR\n```")
+          assert 'GWCUT_CHILD_RC=$?' in after
+          assert 'if [ "$GWCUT_HISTORY_WAS_ON" = 1 ]; then' in after
+          assert 'set -o history' in after
+          assert 'unset GWCUT_HISTORY_WAS_ON' in after
+          assert 'exit ' not in after
 
-          probe = r'''
-          marker="$(mktemp)"
+          sentinel = "GW_SECRET_HISTORY_SENTINEL_8fb1c2b0"
+          with tempfile.TemporaryDirectory() as directory:
+              histfile = Path(directory) / "history"
+              probe = f'''HISTFILE={shlex.quote(str(histfile))}
+          HISTSIZE=1000
+          HISTFILESIZE=1000
+          set -o history
+          case $- in
+            *H*) GWCUT_HISTORY_WAS_ON=1; set +o history ;;
+            *)   GWCUT_HISTORY_WAS_ON=0 ;;
+          esac
           (
             exec /bin/bash
-          ) <<'CHILD'
+          ) <<'GWCUT_OPERATOR'
           set -euo pipefail
+          cat >/dev/null <<'SECRET'
+          {sentinel}
+          SECRET
           exit 23
-          CHILD
-          child_rc=$?
-          printf 'ssh-parent-survived\n' >"$marker"
-          test "$child_rc" -eq 23
-          grep -qx 'ssh-parent-survived' "$marker"
-          rm -f "$marker"
+          GWCUT_OPERATOR
+          GWCUT_CHILD_RC=$?
+          if [ "$GWCUT_HISTORY_WAS_ON" = 1 ]; then
+            set -o history
+          fi
+          unset GWCUT_HISTORY_WAS_ON
+          test "$GWCUT_CHILD_RC" -eq 23
+          unset GWCUT_CHILD_RC
+          printf 'ssh-parent-survived\\n'
+          history -w
+          exit
           '''
-          completed = subprocess.run(["bash", "-c", probe], check=False)
-          assert completed.returncode == 0, completed.returncode
+              completed = subprocess.run(
+                  ["bash", "--noprofile", "--norc", "-i"],
+                  input=probe,
+                  text=True,
+                  capture_output=True,
+                  check=False,
+              )
+              assert completed.returncode == 0, (completed.returncode, completed.stderr)
+              assert 'ssh-parent-survived' in completed.stdout
+              history_text = histfile.read_text(encoding="utf-8")
+              assert sentinel not in history_text
+              assert 'set +o history' in history_text
+              assert 'set -o history' in history_text
           PY
