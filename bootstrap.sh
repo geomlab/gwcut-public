@@ -37,14 +37,8 @@ grep -Eq '^VERSION_ID="?24\.04"?$' /etc/os-release || fatal "fresh bootstrap req
 GITHUB_TOKEN=""
 GHCR_READ_TOKEN=""
 DASHBOARD_PASSWORD=""
-S3_WORKER_ACCESS_KEY=""
-S3_WORKER_SECRET_KEY=""
-S3_READER_ACCESS_KEY=""
-S3_READER_SECRET_KEY=""
-S3_BACKUP_ACCESS_KEY=""
-S3_BACKUP_SECRET_KEY=""
-S3_PITR_ACCESS_KEY=""
-S3_PITR_SECRET_KEY=""
+S3_ACCESS_KEY=""
+S3_SECRET_KEY=""
 S3_BUCKET=""
 S3_REGION=""
 declare -A seen=()
@@ -54,7 +48,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   name=${line%%=*}
   value=${line#*=}
   case "$name" in
-    GITHUB_TOKEN|GHCR_READ_TOKEN|DASHBOARD_PASSWORD|S3_WORKER_ACCESS_KEY|S3_WORKER_SECRET_KEY|S3_READER_ACCESS_KEY|S3_READER_SECRET_KEY|S3_BACKUP_ACCESS_KEY|S3_BACKUP_SECRET_KEY|S3_PITR_ACCESS_KEY|S3_PITR_SECRET_KEY|S3_BUCKET|S3_REGION) ;;
+    GITHUB_TOKEN|GHCR_READ_TOKEN|DASHBOARD_PASSWORD|S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION) ;;
     *) fatal "unknown bootstrap input field: $name" ;;
   esac
   [[ -z ${seen[$name]+x} ]] || fatal "duplicate bootstrap input field: $name"
@@ -67,17 +61,10 @@ done
 
 case "$BOOTSTRAP_MODE" in
   auto|first-install|host)
-    required=(
-      GITHUB_TOKEN GHCR_READ_TOKEN DASHBOARD_PASSWORD
-      S3_WORKER_ACCESS_KEY S3_WORKER_SECRET_KEY
-      S3_READER_ACCESS_KEY S3_READER_SECRET_KEY
-      S3_BACKUP_ACCESS_KEY S3_BACKUP_SECRET_KEY
-      S3_PITR_ACCESS_KEY S3_PITR_SECRET_KEY
-      S3_BUCKET S3_REGION
-    )
+    required=(GITHUB_TOKEN GHCR_READ_TOKEN DASHBOARD_PASSWORD S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION)
     ;;
   pitr-restore-drill)
-    required=(GITHUB_TOKEN S3_PITR_ACCESS_KEY S3_PITR_SECRET_KEY S3_BUCKET S3_REGION)
+    required=(GITHUB_TOKEN S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION)
     ;;
 esac
 for name in "${required[@]}"; do
@@ -105,6 +92,8 @@ if [[ "$BOOTSTRAP_MODE" != "pitr-restore-drill" ]]; then
 fi
 unset GITHUB_TOKEN GHCR_READ_TOKEN
 
+# The executable askpass helper contains only the root-only token pathname. The token itself is
+# never placed in a Git URL, helper source or process argument.
 askpass="${AUTH_DIR}/stage0-askpass.$$"
 partial=""
 cat >"$askpass" <<'EOF'
@@ -127,6 +116,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Stage 0 never resolves mutable main. The operator pins one reviewed exact infra commit.
 target_release="${RELEASE_ROOT}/${target_sha}"
 if [[ ! -d "$target_release/.git" ]]; then
   partial="${target_release}.partial.$$"
@@ -207,14 +197,8 @@ case "$BOOTSTRAP_MODE" in
 
     {
       printf 'DASHBOARD_PASSWORD=%s\n' "$DASHBOARD_PASSWORD"
-      printf 'S3_WORKER_ACCESS_KEY=%s\n' "$S3_WORKER_ACCESS_KEY"
-      printf 'S3_WORKER_SECRET_KEY=%s\n' "$S3_WORKER_SECRET_KEY"
-      printf 'S3_READER_ACCESS_KEY=%s\n' "$S3_READER_ACCESS_KEY"
-      printf 'S3_READER_SECRET_KEY=%s\n' "$S3_READER_SECRET_KEY"
-      printf 'S3_BACKUP_ACCESS_KEY=%s\n' "$S3_BACKUP_ACCESS_KEY"
-      printf 'S3_BACKUP_SECRET_KEY=%s\n' "$S3_BACKUP_SECRET_KEY"
-      printf 'S3_PITR_ACCESS_KEY=%s\n' "$S3_PITR_ACCESS_KEY"
-      printf 'S3_PITR_SECRET_KEY=%s\n' "$S3_PITR_SECRET_KEY"
+      printf 'S3_ACCESS_KEY=%s\n' "$S3_ACCESS_KEY"
+      printf 'S3_SECRET_KEY=%s\n' "$S3_SECRET_KEY"
       printf 'S3_BUCKET=%s\n' "$S3_BUCKET"
       printf 'S3_REGION=%s\n' "$S3_REGION"
     } | GWCUT_INFRA_GIT_SHA="$target_sha" \
@@ -228,18 +212,12 @@ case "$BOOTSTRAP_MODE" in
     GWCUT_INFRA_GIT_SHA="$target_sha" \
     GWCUT_PITR_SOURCE_GENERATION="$GWCUT_PITR_SOURCE_GENERATION" \
     GWCUT_DRILL_SOURCE_URL="$GWCUT_DRILL_SOURCE_URL" \
-    S3_ACCESS_KEY="$S3_PITR_ACCESS_KEY" \
-    S3_SECRET_KEY="$S3_PITR_SECRET_KEY" \
+    S3_ACCESS_KEY="$S3_ACCESS_KEY" \
+    S3_SECRET_KEY="$S3_SECRET_KEY" \
     S3_BUCKET="$S3_BUCKET" \
     S3_REGION="$S3_REGION" \
       /bin/bash "$target_release/deploy/pitr-restore-drill.sh"
     ;;
 esac
 
-unset \
-  DASHBOARD_PASSWORD \
-  S3_WORKER_ACCESS_KEY S3_WORKER_SECRET_KEY \
-  S3_READER_ACCESS_KEY S3_READER_SECRET_KEY \
-  S3_BACKUP_ACCESS_KEY S3_BACKUP_SECRET_KEY \
-  S3_PITR_ACCESS_KEY S3_PITR_SECRET_KEY \
-  S3_BUCKET S3_REGION
+unset DASHBOARD_PASSWORD S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION
