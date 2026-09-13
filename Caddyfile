@@ -1,0 +1,29 @@
+{
+    admin off
+    default_sni {$GWCUT_PUBLIC_HOST}
+}
+
+{$GWCUT_PUBLIC_HOST} {
+    tls {
+        issuer acme https://acme-v02.api.letsencrypt.org/directory {
+            profile shortlived
+        }
+    }
+
+    @private path /internal /internal/*
+    respond @private 404
+
+    @framework_docs path /docs /docs/* /redoc /openapi.json
+    respond @framework_docs 404
+
+    header {
+        -Server
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "no-referrer"
+        Cache-Control "no-store"
+    }
+
+    reverse_proxy api:8080
+}
