@@ -71,7 +71,7 @@ services:
       - /var/lib/gwcut/work:/var/lib/gwcut/work
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2.11.3-alpine
     restart: unless-stopped
     depends_on:
       api:
