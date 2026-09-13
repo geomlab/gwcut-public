@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gwcut
+      POSTGRES_USER: gwcut
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gwcut -d gwcut"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    image: ${GWCUT_INFRA_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn gwcut_infra.api.app:app --host 0.0.0.0 --port 8080"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://gwcut:${POSTGRES_PASSWORD}@postgres:5432/gwcut
+      GWCUT_CONTROL_TOKEN: ${GWCUT_CONTROL_TOKEN}
+      GWCUT_INTERNAL_TOKEN: ${GWCUT_INTERNAL_TOKEN}
+      GWCUT_SIMPLE_COMPOSE: "1"
+      GWCUT_PLANNER_IMAGE_DIGEST: ${GWCUT_SCIENCE_IMAGE_DIGEST}
+      GWCUT_PLANNER_IMAGE_REFERENCE: ${GWCUT_SCIENCE_IMAGE_REFERENCE}
+      GWCUT_PLANNER_WORKER_ENTRYPOINT: gwcut-worker
+      GWCUT_PLANNER_RUNTIME_ROOT: /var/lib/gwcut/planner
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      GWCUT_ARTIFACT_S3_REGION: ${GWCUT_ARTIFACT_S3_REGION}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/gwcut/planner:/var/lib/gwcut/planner
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  scheduler:
+    image: ${GWCUT_INFRA_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    command: ["gwcut-scheduler"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://gwcut:${POSTGRES_PASSWORD}@postgres:5432/gwcut
+      GWCUT_IMAGE_SPECS_JSON: ${GWCUT_IMAGE_SPECS_JSON}
+      GWCUT_MAX_WORKERS: ${GWCUT_MAX_WORKERS:-4}
+      GWCUT_MEMORY_BUDGET_MIB: ${GWCUT_MEMORY_BUDGET_MIB:-12288}
+      GWCUT_CPU_BUDGET: ${GWCUT_CPU_BUDGET:-6}
+      GWCUT_DISK_BUDGET_MIB: ${GWCUT_DISK_BUDGET_MIB:-102400}
+      GWCUT_REQUIRE_RESOURCE_LIMITS: "1"
+      GWCUT_SCHEDULER_POLL_SECONDS: "2"
+      GWCUT_WORKSPACE_ROOT: /var/lib/gwcut/work
+      GWCUT_STORAGE_BACKEND: s3
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/gwcut/work:/var/lib/gwcut/work
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      GWCUT_PUBLIC_HOST: ${GWCUT_PUBLIC_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
