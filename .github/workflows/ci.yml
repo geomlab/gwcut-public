@@ -12,74 +12,84 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate shell syntax
         run: bash -n bootstrap.sh
-      - name: Validate public bootstrap security contract
+      - name: Validate public Compose bootstrap security contract
         run: |
           python3 - <<'PY'
+          import re
           from pathlib import Path
 
           text = Path("bootstrap.sh").read_text(encoding="utf-8")
+
           required = [
               'set -euo pipefail',
               'set +x',
               'umask 077',
-              'readonly REPO_URL="https://github.com/geomlab/gwcut-infra.git"',
-              'readonly TOKEN_FILE="/opt/gwcut/updater-github-token"',
-              'readonly GHCR_TOKEN_FILE="/opt/gwcut/ghcr-read-token"',
-              'readonly AUTH_DIR="/opt/gwcut/auth"',
-              'readonly BOOTSTRAP_MODE="${GWCUT_BOOTSTRAP_MODE:-auto}"',
-              'GWCUT_INFRA_GIT_SHA is required',
-              'GWCUT_INFRA_GIT_SHA must be a full lowercase commit SHA',
-              'target_sha="$GWCUT_INFRA_GIT_SHA"',
-              'auto|first-install|host',
+              "readonly INFRA_SHA='",
+              "readonly INFRA_REPO='geomlab/gwcut-infra'",
+              "readonly BOOTSTRAP_PATH='deploy/compose/bootstrap-compose-v1.sh'",
+              'command -v curl >/dev/null 2>&1',
               'GITHUB_TOKEN|GHCR_READ_TOKEN|DASHBOARD_PASSWORD|S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION',
-              'required=(GITHUB_TOKEN GHCR_READ_TOKEN DASHBOARD_PASSWORD S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_REGION)',
-              'apt-get install -y --no-install-recommends ca-certificates curl git',
-              'install -d -o root -g root -m 0700 "$AUTH_DIR"',
-              'askpass="${AUTH_DIR}/stage0-askpass.$$"',
-              'printf \'%s\\n\' "$GITHUB_TOKEN" >"$TOKEN_FILE"',
-              'printf \'%s\\n\' "$GHCR_READ_TOKEN" >"$GHCR_TOKEN_FILE"',
-              'chown root:root "$TOKEN_FILE"',
-              'chmod 0600 "$TOKEN_FILE"',
-              'git -C "$partial" fetch --depth=1 origin "$target_sha"',
-              'git -C "$partial" rev-parse HEAD',
-              'export GIT_TERMINAL_PROMPT=0',
-              'existing GWCut installation is a different SHA',
-              'database-decision.json',
-              'state not in {"fresh-empty", "restored", "existing"}',
-              'science.get("status") != "passed"',
-              'science.get("fresh_submission") is not True',
-              'fresh-bootstrap.sh',
+              'https://api.github.com/repos/${INFRA_REPO}/contents/${BOOTSTRAP_PATH}?ref=${INFRA_SHA}',
+              'Authorization: Bearer ${GITHUB_TOKEN}',
+              'application/vnd.github.raw+json',
+              "--proto '=https'",
+              '--tlsv1.2',
+              'unset GITHUB_TOKEN',
+              'GITHUB_TOKEN=not-persisted-stage0-token',
+              "printf 'GHCR_READ_TOKEN=%s\\n'",
+              "printf 'DASHBOARD_PASSWORD=%s\\n'",
+              "printf 'S3_ACCESS_KEY=%s\\n'",
+              "printf 'S3_SECRET_KEY=%s\\n'",
+              "printf 'S3_BUCKET=%s\\n'",
+              "printf 'S3_REGION=%s\\n'",
+              '/bin/bash "$bootstrap"',
           ]
           for needle in required:
               assert needle in text, needle
+
+          match = re.search(r"readonly INFRA_SHA='([0-9a-f]{40})'", text)
+          assert match, 'missing immutable infra SHA'
 
           forbidden = [
               '\nsource ',
               '\n. /',
               'eval ',
               'set -x',
+              'git clone',
+              'git fetch',
               'git ls-remote',
               'refs/heads/main',
-              'sha256:',
-              'gwcut-worker',
+              '/opt/gwcut/updater-github-token',
+              '/opt/gwcut/ghcr-read-token',
+              'GIT_ASKPASS',
+              'fresh-bootstrap.sh',
+              'pitr-restore-drill.sh',
               'DATABASE_URL=',
-              '/run/gwcut-stage0-askpass',
-              'https://x-access-token:',
               'S3_WORKER_ACCESS_KEY',
               'S3_READER_ACCESS_KEY',
               'S3_BACKUP_ACCESS_KEY',
               'S3_PITR_ACCESS_KEY',
-              'GWCUT_REQUIRE_FRESH_SCIENCE_SMOKE',
           ]
           for needle in forbidden:
               assert needle not in text, needle
 
+          fields = [
+              'GITHUB_TOKEN',
+              'GHCR_READ_TOKEN',
+              'DASHBOARD_PASSWORD',
+              'S3_ACCESS_KEY',
+              'S3_SECRET_KEY',
+              'S3_BUCKET',
+              'S3_REGION',
+          ]
+          for field in fields:
+              assert f'{field}=""' in text, field
+
           assert text.count("printf 'DASHBOARD_PASSWORD=%s\\n'") == 1
           assert text.count("printf 'S3_ACCESS_KEY=%s\\n'") == 1
           assert text.count("printf 'S3_SECRET_KEY=%s\\n'") == 1
-          assert 'env GWCUT_INFRA_GIT_SHA=' not in text
-          assert 'existing GWCut installation detected' not in text
-          assert 'fresh bootstrap requires Ubuntu 24.04' in text
+          assert 'https://x-access-token:' not in text
+          assert 'raw.githubusercontent.com/geomlab/gwcut-infra/main/' not in text
           PY
       - name: Validate SSH-safe and history-safe operator boundary
         run: |
