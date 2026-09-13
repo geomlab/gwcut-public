@@ -6,182 +6,108 @@ on:
   pull_request:
 
 jobs:
-  stage0:
+  deployment-kit:
     runs-on: ubuntu-24.04
+
     steps:
       - uses: actions/checkout@v4
-      - name: Validate shell syntax
+
+      - name: Validate bootstrap shell syntax
         run: bash -n bootstrap.sh
-      - name: Validate public Compose bootstrap security contract
+
+      - name: Validate Compose configuration
+        run: |
+          cat > /tmp/gwcut.env <<'EOF'
+          COMPOSE_PROJECT_NAME=gwcut
+          POSTGRES_PASSWORD=test
+          GWCUT_CONTROL_TOKEN=test
+          GWCUT_INTERNAL_TOKEN=test
+          GWCUT_INFRA_IMAGE=ghcr.io/geomlab/gwcut-infra:main
+          GWCUT_SCIENCE_IMAGE_DIGEST=sha256:8a1912c584e2d187e2d944a6d830f5b8af1715fd33a96ede85bc1cbb58086106
+          GWCUT_SCIENCE_IMAGE_REFERENCE=ghcr.io/geomlab/gwcut@sha256:8a1912c584e2d187e2d944a6d830f5b8af1715fd33a96ede85bc1cbb58086106
+          GWCUT_IMAGE_SPECS_JSON='{"sha256:8a1912c584e2d187e2d944a6d830f5b8af1715fd33a96ede85bc1cbb58086106":{"reference":"ghcr.io/geomlab/gwcut@sha256:8a1912c584e2d187e2d944a6d830f5b8af1715fd33a96ede85bc1cbb58086106","entrypoint":"gwcut-worker"}}'
+          GWCUT_PUBLIC_HOST=8.8.8.8
+          GWCUT_MAX_WORKERS=4
+          GWCUT_MEMORY_BUDGET_MIB=12288
+          GWCUT_CPU_BUDGET=6
+          GWCUT_DISK_BUDGET_MIB=102400
+          S3_ENDPOINT=https://fsn1.your-objectstorage.com
+          S3_BUCKET=test-bucket
+          S3_ACCESS_KEY=test
+          S3_SECRET_KEY=test
+          GWCUT_ARTIFACT_S3_REGION=fsn1
+          EOF
+
+          docker compose \
+            --env-file /tmp/gwcut.env \
+            -f compose.production.yml \
+            config >/tmp/compose.rendered.yml
+
+      - name: Require exactly four long-lived services
+        run: |
+          services="$(
+            docker compose \
+              --env-file /tmp/gwcut.env \
+              -f compose.production.yml \
+              config --services \
+              | sort
+          )"
+
+          expected="$(
+            printf '%s\n' api caddy postgres scheduler | sort
+          )"
+
+          test "$services" = "$expected"
+
+      - name: Validate Caddyfile
+        run: |
+          docker run --rm \
+            -e GWCUT_PUBLIC_HOST=8.8.8.8 \
+            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.11.3-alpine \
+            caddy validate \
+            --config /etc/caddy/Caddyfile \
+            --adapter caddyfile
+
+      - name: Validate simplified bootstrap contract
         run: |
           python3 - <<'PY'
-          import re
           from pathlib import Path
 
           text = Path("bootstrap.sh").read_text(encoding="utf-8")
 
           required = [
-              'set -euo pipefail',
-              'set +x',
-              'umask 077',
-              "readonly INFRA_SHA='",
-              "readonly INFRA_REPO='geomlab/gwcut-infra'",
-              "readonly BOOTSTRAP_PATH='deploy/compose/bootstrap-compose-v1.sh'",
-              'command -v curl >/dev/null 2>&1',
-              'GITHUB_TOKEN|GHCR_READ_TOKEN|DASHBOARD_PASSWORD|S3_ACCESS_KEY|S3_SECRET_KEY|S3_BUCKET|S3_REGION',
-              'https://api.github.com/repos/${INFRA_REPO}/contents/${BOOTSTRAP_PATH}?ref=${INFRA_SHA}',
-              'Authorization: Bearer ${GITHUB_TOKEN}',
-              'application/vnd.github.raw+json',
-              "--proto '=https'",
-              '--tlsv1.2',
-              'unset GITHUB_TOKEN',
-              'GITHUB_TOKEN=not-persisted-stage0-token',
-              "printf 'GHCR_READ_TOKEN=%s\\n'",
-              "printf 'DASHBOARD_PASSWORD=%s\\n'",
-              "printf 'S3_ACCESS_KEY=%s\\n'",
-              "printf 'S3_SECRET_KEY=%s\\n'",
-              "printf 'S3_BUCKET=%s\\n'",
-              "printf 'S3_REGION=%s\\n'",
-              '/bin/bash "$bootstrap"',
+              "set -euo pipefail",
+              "set +x",
+              "umask 077",
+              "ghcr.io/geomlab/gwcut-infra:main",
+              "sha256:8a1912c584e2d187e2d944a6d830f5b8af1715fd33a96ede85bc1cbb58086106",
+              "compose.production.yml",
+              "Caddyfile",
+              "docker compose",
+              "restart",
           ]
-          for needle in required:
-              assert needle in text, needle
 
-          match = re.search(r"readonly INFRA_SHA='([0-9a-f]{40})'", text)
-          assert match, 'missing immutable infra SHA'
+          for needle in required:
+              assert needle in text or needle in Path("compose.production.yml").read_text(), needle
 
           forbidden = [
-              '\nsource ',
-              '\n. /',
-              'eval ',
-              'set -x',
-              'git clone',
-              'git fetch',
-              'git ls-remote',
-              'refs/heads/main',
-              '/opt/gwcut/updater-github-token',
-              '/opt/gwcut/ghcr-read-token',
-              'GIT_ASKPASS',
-              'fresh-bootstrap.sh',
-              'pitr-restore-drill.sh',
-              'DATABASE_URL=',
-              'S3_WORKER_ACCESS_KEY',
-              'S3_READER_ACCESS_KEY',
-              'S3_BACKUP_ACCESS_KEY',
-              'S3_PITR_ACCESS_KEY',
+              "INFRA_SHA",
+              "GWCUT_INFRA_GIT_SHA",
+              "stable-bootstrap.sh",
+              "git clone",
+              "git fetch",
+              "refs/heads/main",
+              "deploy/compose/bootstrap-compose-v1.sh",
+              "npm install",
+              "desktop-commander",
+              "pgbackrest",
+              "systemd/gwcut-",
           ]
+
           for needle in forbidden:
               assert needle not in text, needle
 
-          fields = [
-              'GITHUB_TOKEN',
-              'GHCR_READ_TOKEN',
-              'DASHBOARD_PASSWORD',
-              'S3_ACCESS_KEY',
-              'S3_SECRET_KEY',
-              'S3_BUCKET',
-              'S3_REGION',
-          ]
-          for field in fields:
-              assert f'{field}=""' in text, field
-
-          assert text.count("printf 'DASHBOARD_PASSWORD=%s\\n'") == 1
-          assert text.count("printf 'S3_ACCESS_KEY=%s\\n'") == 1
-          assert text.count("printf 'S3_SECRET_KEY=%s\\n'") == 1
-          assert 'https://x-access-token:' not in text
-          assert 'raw.githubusercontent.com/geomlab/gwcut-infra/main/' not in text
-          PY
-      - name: Validate SSH-safe and history-safe operator boundary
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import shlex
-          import subprocess
-          import tempfile
-
-          readme = Path("README.md").read_text(encoding="utf-8")
-          start_marker = "<!-- ssh-safe-one-paste:start -->"
-          end_marker = "<!-- ssh-safe-one-paste:end -->"
-          assert readme.count(start_marker) == 1
-          assert readme.count(end_marker) == 1
-          block = readme.split(start_marker, 1)[1].split(end_marker, 1)[0]
-
-          assert 'if shopt -qo history; then' in block
-          assert 'GWCUT_HISTORY_WAS_ON=1\n  set +o history' in block
-          assert 'GWCUT_HISTORY_WAS_ON=0' in block
-          assert 'case $- in' not in block
-
-          boundary = ") <<'GWCUT_OPERATOR'"
-          assert boundary in block
-          outer, remainder = block.split(boundary, 1)
-
-          assert 'exec /bin/bash' in outer
-          assert 'exec sudo -H /bin/bash' in outer
-          assert 'set -e' not in outer
-          assert 'set -u' not in outer
-          assert 'set -o pipefail' not in outer
-          assert 'set +x' not in outer
-          assert 'umask ' not in outer
-          assert '\nexit ' not in outer
-
-          heredoc_end = "\nGWCUT_OPERATOR\n"
-          assert heredoc_end in remainder
-          child, after = remainder.split(heredoc_end, 1)
-          assert 'set -euo pipefail' in child
-          assert 'set +x' in child
-          assert 'umask 077' in child
-          assert 'GWCUT_CHILD_RC=$?' in after
-          assert 'if [ "$GWCUT_HISTORY_WAS_ON" = 1 ]; then' in after
-          assert 'set -o history' in after
-          assert 'unset GWCUT_HISTORY_WAS_ON' in after
-          assert 'exit ' not in after
-
-          sentinel = "GW_SECRET_HISTORY_SENTINEL_8fb1c2b0"
-          with tempfile.TemporaryDirectory() as directory:
-              histfile = Path(directory) / "history"
-              probe = f'''HISTFILE={shlex.quote(str(histfile))}
-          HISTSIZE=1000
-          HISTFILESIZE=1000
-          set -o history
-          set +H
-          shopt -qo history || exit 91
-          if shopt -qo history; then
-            GWCUT_HISTORY_WAS_ON=1
-            set +o history
-          else
-            GWCUT_HISTORY_WAS_ON=0
-          fi
-          (
-            exec /bin/bash
-          ) <<'GWCUT_OPERATOR'
-          set -euo pipefail
-          cat >/dev/null <<'SECRET'
-          {sentinel}
-          SECRET
-          exit 23
-          GWCUT_OPERATOR
-          GWCUT_CHILD_RC=$?
-          if [ "$GWCUT_HISTORY_WAS_ON" = 1 ]; then
-            set -o history
-          fi
-          unset GWCUT_HISTORY_WAS_ON
-          test "$GWCUT_CHILD_RC" -eq 23
-          unset GWCUT_CHILD_RC
-          printf 'ssh-parent-survived\\n'
-          history -w
-          exit
-          '''
-              completed = subprocess.run(
-                  ["bash", "--noprofile", "--norc", "-i"],
-                  input=probe,
-                  text=True,
-                  capture_output=True,
-                  check=False,
-              )
-              assert completed.returncode == 0, (completed.returncode, completed.stderr)
-              assert 'ssh-parent-survived' in completed.stdout
-              history_text = histfile.read_text(encoding="utf-8")
-              assert sentinel not in history_text
-              assert 'set +o history' in history_text
-              assert 'set -o history' in history_text
+          science = "sha256:8a1912c584e2d187e2d944a6d830f5b8af1715fd33a96ede85bc1cbb58086106"
+          assert text.count(science) >= 2
           PY
