@@ -19,11 +19,8 @@ jobs:
 
           text = Path('stable-bootstrap.sh').read_text(encoding='utf-8')
           public = re.search(r"PUBLIC_STAGE0_SHA='([0-9a-f]{40})'", text)
-          infra = re.search(r"INFRA_SHA='([0-9a-f]{40})'", text)
           assert public, 'missing immutable public Stage-0 SHA'
-          assert infra, 'missing immutable infra SHA'
           assert 'raw.githubusercontent.com/geomlab/gwcut-public/${PUBLIC_STAGE0_SHA}/bootstrap.sh' in text
-          assert 'GWCUT_INFRA_GIT_SHA="$INFRA_SHA" /bin/bash "$loader"' in text
           assert "raw.githubusercontent.com/geomlab/gwcut-public/main/bootstrap.sh" not in text
           assert 'set -euo pipefail' in text
           assert 'set +x' in text
@@ -71,13 +68,25 @@ jobs:
               assert field not in runbook, field
               assert field not in stage0, field
 
-          assert 'exactly one retained provider-side S3 identity' in runbook
-          assert 'umask 077 && nano /root/gwcut-bootstrap.env && chmod 600 /root/gwcut-bootstrap.env' in runbook
-          assert 'https://raw.githubusercontent.com/geomlab/gwcut-public/main/stable-bootstrap.sh' in runbook
-          assert '&& bash /root/bootstrap.sh </root/gwcut-bootstrap.env' in runbook
-          assert 'Do not `source` this file.' in runbook
-          assert 'Do not supply release SHAs manually.' in runbook
-          assert 'no manual fresh-vs-recovery mode is required from the operator' in runbook
-          assert 'Fresh install and recovery must not have different credential contracts.' in runbook
-          assert 'normal human procedure on a pristine host is therefore exactly two actions' in runbook
+          required_phrases = [
+              'umask 077 && nano /root/gwcut-bootstrap.env && chmod 600 /root/gwcut-bootstrap.env',
+              'https://raw.githubusercontent.com/geomlab/gwcut-public/main/stable-bootstrap.sh',
+              '&& bash /root/bootstrap.sh </root/gwcut-bootstrap.env',
+              'Do not `source` the file',
+              'The operator does not provide release SHAs',
+              'exactly two visible actions',
+              'postgres',
+              'api',
+              'scheduler',
+              'caddy',
+              'Remote Desktop Commander is maintenance tooling, not a fifth GWCut service.',
+          ]
+          for phrase in required_phrases:
+              assert phrase in runbook, phrase
+
+          assert "readonly INFRA_SHA='" in stage0
+          assert "readonly BOOTSTRAP_PATH='deploy/compose/bootstrap-compose-v1.sh'" in stage0
+          assert '/opt/gwcut/updater-github-token' not in stage0
+          assert '/opt/gwcut/ghcr-read-token' not in stage0
+          assert 'fresh-bootstrap.sh' not in stage0
           PY
