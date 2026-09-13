@@ -374,4 +374,36 @@ app_status="$(
     --silent \
     --output /dev/null \
     --write-out '%{http_code}' \
-    --max-time 5
+    --max-time 5 \
+    "https://${PUBLIC_HOST}/app/" \
+    || true
+)"
+
+[[ "$app_status" == "401" ]] \
+  || fatal "public /app/ must require authentication; got HTTP ${app_status}"
+
+cat >/usr/local/bin/gwcut-compose <<'EOF'
+#!/bin/sh
+set -eu
+exec docker compose \
+  --env-file /opt/gwcut/.env \
+  -f /opt/gwcut/compose.production.yml \
+  "$@"
+EOF
+
+chmod 0755 /usr/local/bin/gwcut-compose
+
+log "GWCut Compose runtime is healthy"
+
+gwcut-compose ps
+
+printf '\n'
+printf '============================================================\n'
+printf 'GWCut bootstrap complete\n'
+printf 'Public host: https://%s/app/\n' "$PUBLIC_HOST"
+printf 'Dashboard username: gwcut\n'
+printf 'Runtime: postgres + api + scheduler + caddy\n'
+printf 'Infra image: %s\n' "$INFRA_IMAGE"
+printf 'Science image: %s\n' "$SCIENCE_IMAGE"
+printf 'Operator helper: gwcut-compose\n'
+printf '============================================================\n'
