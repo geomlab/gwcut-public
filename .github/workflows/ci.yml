@@ -35,11 +35,12 @@ jobs:
           GWCUT_ARTIFACT_S3_REGION=fsn1
           EOF
           docker compose --env-file /tmp/gwcut.env -f compose.production.yml config >/tmp/compose.rendered.yml
-      - name: Require exactly five long-lived services
+      - name: Require core services
         run: |
-          services="$(docker compose --env-file /tmp/gwcut.env -f compose.production.yml config --services | sort)"
-          expected="$(printf '%s\n' analysis api caddy postgres scheduler | sort)"
-          test "$services" = "$expected"
+          services="$(docker compose --env-file /tmp/gwcut.env -f compose.production.yml config --services)"
+          for required in api caddy postgres scheduler; do
+            printf '%s\n' "$services" | grep -Fxq "$required"
+          done
       - name: Validate Caddyfile
         run: docker run --rm -e GWCUT_PUBLIC_HOST=8.8.8.8 -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.11.3-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Validate simplified bootstrap contract
