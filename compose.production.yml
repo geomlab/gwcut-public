@@ -43,6 +43,21 @@ services:
       timeout: 3s
       retries: 20
 
+  analysis:
+    image: ghcr.io/geomlab/gwcut-analysis@sha256:536f5eac81e82489108f10dddfcc1e491609a82f335416ef92c347f836e5bae8
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      GWCUT_UPSTREAM_BASE_URL: http://api:8080
+      GWCUT_UPSTREAM_VERIFY_TLS: "false"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   scheduler:
     image: ${GWCUT_INFRA_IMAGE}
     restart: unless-stopped
@@ -74,6 +89,8 @@ services:
     restart: unless-stopped
     depends_on:
       api:
+        condition: service_healthy
+      analysis:
         condition: service_healthy
     environment:
       GWCUT_PUBLIC_HOST: ${GWCUT_PUBLIC_HOST}

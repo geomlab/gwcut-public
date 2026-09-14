@@ -25,5 +25,22 @@
         Cache-Control "no-store"
     }
 
+    @analysis_root path /analysis
+    redir @analysis_root /analysis/ 308
+
+    handle_path /analysis/* {
+        reverse_proxy analysis:8080
+    }
+
+    @analysis_static path /static/*
+    handle @analysis_static {
+        reverse_proxy analysis:8080
+    }
+
+    @analysis_api path /api/campaigns /api/campaigns/*
+    handle @analysis_api {
+        reverse_proxy analysis:8080
+    }
+
     reverse_proxy api:8080
 }
