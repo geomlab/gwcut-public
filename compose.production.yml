@@ -44,7 +44,8 @@ services:
       retries: 20
 
   analysis:
-    image: ghcr.io/geomlab/gwcut-analysis@sha256:536f5eac81e82489108f10dddfcc1e491609a82f335416ef92c347f836e5bae8
+    image: ghcr.io/geomlab/gwcut-analysis:main
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       api:
