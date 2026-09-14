@@ -35,10 +35,10 @@ jobs:
           GWCUT_ARTIFACT_S3_REGION=fsn1
           EOF
           docker compose --env-file /tmp/gwcut.env -f compose.production.yml config >/tmp/compose.rendered.yml
-      - name: Require exactly four long-lived services
+      - name: Require exactly five long-lived services
         run: |
           services="$(docker compose --env-file /tmp/gwcut.env -f compose.production.yml config --services | sort)"
-          expected="$(printf '%s\n' api caddy postgres scheduler | sort)"
+          expected="$(printf '%s\n' analysis api caddy postgres scheduler | sort)"
           test "$services" = "$expected"
       - name: Validate Caddyfile
         run: docker run --rm -e GWCUT_PUBLIC_HOST=8.8.8.8 -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.11.3-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
@@ -57,6 +57,8 @@ jobs:
           assert "caddy:2.11.3-alpine" in compose
           assert "caddy:2-alpine" not in compose
           assert "./Caddyfile:/etc/caddy/Caddyfile:ro" in compose
+          assert "ghcr.io/geomlab/gwcut-analysis@sha256:536f5eac81e82489108f10dddfcc1e491609a82f335416ef92c347f836e5bae8" in compose
+          assert "GWCUT_UPSTREAM_BASE_URL: http://api:8080" in compose
           assert bootstrap.index("apt-get install") < bootstrap.index("command -v curl")
           science = "sha256:8a1912c584e2d187e2d944a6d830f5b8af1715fd33a96ede85bc1cbb58086106"
           assert bootstrap.count(science) >= 2
