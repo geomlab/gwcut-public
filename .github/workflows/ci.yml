@@ -58,7 +58,8 @@ jobs:
           assert "caddy:2.11.3-alpine" in compose
           assert "caddy:2-alpine" not in compose
           assert "./Caddyfile:/etc/caddy/Caddyfile:ro" in compose
-          assert "ghcr.io/geomlab/gwcut-analysis@sha256:536f5eac81e82489108f10dddfcc1e491609a82f335416ef92c347f836e5bae8" in compose
+          assert "ghcr.io/geomlab/gwcut-analysis:main" in compose
+          assert "pull_policy: always" in compose
           assert "GWCUT_UPSTREAM_BASE_URL: http://api:8080" in compose
           assert bootstrap.index("apt-get install") < bootstrap.index("command -v curl")
           science = "sha256:8a1912c584e2d187e2d944a6d830f5b8af1715fd33a96ede85bc1cbb58086106"
